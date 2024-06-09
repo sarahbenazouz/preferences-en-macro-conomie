@@ -1,0 +1,68 @@
+# -*- coding: utf-8 -*-
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.stats import levy_stable
+
+# Paramètres du modèle Minsky
+alpha = 1.5  # Paramètre de la distribution stable
+beta = 0.1  # Symétrie de la distribution stable
+gamma = 0.1  # Échelle de la distribution stable
+delta = 0  # Localisation de la distribution stable
+lambda_0 = 0.01  # Taux initial de Poisson
+rho = 0.05  # Taux d'intérêt ou de service de la dette
+
+
+# Équations différentielles du modèle Minsky
+
+#b représente l'endettement ou la prise de risque financier
+#u représente l'utilisation des capacités de production
+#L représente le stock de dette accumulée du secteur privé
+
+def minsky_model(y):
+    b, u, L = y
+    db_dt = b * (1 - u)
+    du_dt = u * (b - L)
+    dL_dt = b - rho * L
+    return np.array([db_dt, du_dt, dL_dt])
+
+# Fonction pour générer des sauts de Poisson
+def poisson_jumps(t, y, lambda_0, alpha, beta, gamma, delta):
+    jump_size = levy_stable.rvs(alpha, beta, loc=delta, scale=gamma)
+    jump_time = np.random.exponential(1 / lambda_0)
+    return jump_time, jump_size
+
+# Méthode de Runge-Kutta d'ordre 4
+def runge_kutta_step(y, dt):
+    k1 = minsky_model(y)
+    k2 = minsky_model(y + 0.5 * dt * k1)
+    k3 = minsky_model(y + 0.5 * dt * k2)
+    k4 = minsky_model(y + dt * k3)
+    return y + (dt / 6.0) * (k1 + 2 * k2 + 2 * k3 + k4)
+
+# Conditions initiales
+y0 = np.array([0.1, 0.1, 0.1])  # Valeurs initiales de b, u, L
+t_span = (0, 100)  # Intervalle de temps pour la simulation
+dt = 0.1  # Pas de temps
+t_eval = np.arange(t_span[0], t_span[1], dt)  # Points de temps pour l'évaluation
+
+# Simulation avec Runge-Kutta d'ordre 4
+y = np.zeros((len(t_eval), len(y0)))
+y[0] = y0
+
+for i in range(1, len(t_eval)):
+    y[i] = runge_kutta_step(y[i-1], dt)
+    jump_time, jump_size = poisson_jumps(t_eval[i], y[i], lambda_0, alpha, beta, gamma, delta)
+    if t_eval[i] + jump_time < t_span[1]:
+        y[i] += jump_size
+
+# Visualisation des résultats
+plt.figure(figsize=(12, 8))
+plt.plot(t_eval, y[:, 0], label='b (endettement)')
+plt.plot(t_eval, y[:, 1], label='u (utilisation de la capacité)')
+plt.plot(t_eval, y[:, 2], label='L (dette accumulée)')
+plt.xlabel('Temps')
+plt.ylabel('Valeurs des variables')
+plt.title('Modèle Minimal de Minsky avec Méthode de Runge-Kutta d\'Ordre 4')
+plt.legend()
+plt.grid(True)
+plt.show()
