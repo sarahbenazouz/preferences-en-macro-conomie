@@ -1,0 +1,75 @@
+import pymdp
+from pymdp import utils
+from pymdp.agent import Agent
+import numpy as np
+
+
+# Définir les états économiques possibles
+states = ['low_wealth', 'medium_wealth', 'high_wealth']
+
+# Définir les actions possibles
+actions = ['invest', 'borrow', 'repay']
+
+# Définir les observations possibles
+observations = ['low_interest', 'medium_interest', 'high_interest']
+
+def create_A_matrix(states, observations):
+    num_states = len(states)
+    num_observations = len(observations)
+
+    A = np.zeros((num_observations, num_states))
+
+    # Exemple simplifié : chaque état a une probabilité égale de produire chaque observation
+    for i in range(num_states):
+        for j in range(num_observations):
+            A[j, i] = 1.0 / num_observations
+
+    return A
+
+A = create_A_matrix(states, observations)
+
+def create_B_matrix(states, actions):
+    num_states = len(states)
+    num_actions = len(actions)
+    
+    B = np.zeros((num_states, num_states, num_actions))
+
+    # Exemple simplifié : chaque action a une probabilité égale de transitionner entre les états
+    for action_id, action in enumerate(actions):
+        for i in range(num_states):
+            for j in range(num_states):
+                B[j, i, action_id] = 1.0 / num_states
+
+    return B
+
+B = create_B_matrix(states, actions)
+
+def create_C_matrix(observations):
+    num_observations = len(observations)
+
+    C = np.zeros((num_observations, 1))
+
+    #L'agent préfère les taux d'intérêt bas
+    C[observations.index('low_interest')] = 1.0
+
+    return C
+
+C = create_C_matrix(observations)
+
+def run_simulation(agent, num_steps):
+    for step in range(num_steps):
+        # Obtenir l'état courant et l'observation
+        current_state = np.random.choice(states)
+        current_observation = np.random.choice(observations)
+        
+        # Mise à jour de l'agent avec l'observation actuelle
+        agent.update_beliefs(current_observation)
+        
+        # Sélectionner une action basée sur les croyances actuelles
+        action = agent.sample_action()
+        
+        # Afficher l'état actuel, l'observation et l'action choisie
+        print("Step {step+1}: State = {current_state}, Observation = {current_observation}, Action = {actions[action]}")
+
+# Exécuter la simulation
+run_simulation(agent, num_steps=10)
