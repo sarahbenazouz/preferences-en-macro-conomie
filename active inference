@@ -1,75 +1,221 @@
-import pymdp
-from pymdp import utils
-from pymdp.agent import Agent
 import numpy as np
-
+import matplotlib.pyplot as plt
+import pymdp
 
 # Définir les états économiques possibles
-states = ['low_wealth', 'medium_wealth', 'high_wealth']
+states = ['low_wealth','low-medium_wealth', 'medium_wealth','medium-high_wealth', 'high_wealth']
 
 # Définir les actions possibles
 actions = ['invest', 'borrow', 'repay']
 
 # Définir les observations possibles
-observations = ['low_interest', 'medium_interest', 'high_interest']
+observations = ['low_interest', 'medium_interest', 'high_interest', 'low_price', 'medium_price', 'high_price']
 
+# Création de la matrice A
 def create_A_matrix(states, observations):
     num_states = len(states)
     num_observations = len(observations)
-
+    
     A = np.zeros((num_observations, num_states))
-
-    # Exemple simplifié : chaque état a une probabilité égale de produire chaque observation
+    
     for i in range(num_states):
         for j in range(num_observations):
-            A[j, i] = 1.0 / num_observations
+            A[j, i] = 1.0 / num_observations  # Simplification: probabilité égale pour chaque observation
 
     return A
 
 A = create_A_matrix(states, observations)
 
+# Création de la matrice B
 def create_B_matrix(states, actions):
     num_states = len(states)
     num_actions = len(actions)
     
     B = np.zeros((num_states, num_states, num_actions))
-
-    # Exemple simplifié : chaque action a une probabilité égale de transitionner entre les états
-    for action_id, action in enumerate(actions):
+    
+    for action_id in range(num_actions):
         for i in range(num_states):
             for j in range(num_states):
-                B[j, i, action_id] = 1.0 / num_states
+                B[j, i, action_id] = 1.0 / num_states  # Simplification: probabilité égale pour chaque transition
 
     return B
 
 B = create_B_matrix(states, actions)
 
-def create_C_matrix(observations):
-    num_observations = len(observations)
-
-    C = np.zeros((num_observations, 1))
-
-    #L'agent préfère les taux d'intérêt bas
+# Création de la matrice C
+def create_C_matrix(states):
+    num_states = len(states)
+    
+    C = np.zeros((num_states, 1))
+    
+    # L'agent préfère les taux d'intérêts bas
     C[observations.index('low_interest')] = 1.0
-
+    
     return C
 
-C = create_C_matrix(observations)
+C = create_C_matrix(states)
 
-def run_simulation(agent, num_steps):
-    for step in range(num_steps):
-        # Obtenir l'état courant et l'observation
-        current_state = np.random.choice(states)
-        current_observation = np.random.choice(observations)
+class Asset:
+    def __init__(self, quality, intrinsic_value, min_price):
+        self.quality = quality
+        self.intrinsic_value = intrinsic_value
+        self.min_price = min_price
+
+class AgentState:
+    def __init__(self, wealth, debt, assets, A, B, C):
+        self.wealth = wealth
+        self.debt = debt
+        self.assets = assets  # Portefeuille d'actions
+        self.A = A
+        self.B = B
+        self.C = C
+        self.beliefs = np.ones(len(states)) / len(states)
+        self.last_prices = np.zeros(len(self.assets))  # Stock des derniers prix d'actions vendues
+
+    def decide(self, current_observation):
+        observation_idx = observations.index(current_observation)
         
-        # Mise à jour de l'agent avec l'observation actuelle
-        agent.update_beliefs(current_observation)
+        # Mise à jour des croyances basée sur l'observation actuelle
+        self.beliefs = self.update_beliefs(self.beliefs, observation_idx)
         
         # Sélectionner une action basée sur les croyances actuelles
-        action = agent.sample_action()
+        action = self.sample_action(self.beliefs)
         
-        # Afficher l'état actuel, l'observation et l'action choisie
-        print("Step {step+1}: State = {current_state}, Observation = {current_observation}, Action = {actions[action]}")
+        return action
 
-# Exécuter la simulation
-run_simulation(agent, num_steps=10)
+    def update_beliefs(self, beliefs, observation_idx):
+        # Calculer la probabilité de l'observation pour chaque état
+        observation_probs = self.A[observation_idx, :]
+        
+        # Mettre à jour les croyances en utilisant la règle de Bayes
+        updated_beliefs = beliefs * observation_probs
+        updated_beliefs /= np.sum(updated_beliefs)
+        
+        return updated_beliefs
+
+    def sample_action(self, beliefs):
+        # Calculer la valeur espérée de chaque action
+        action_values = np.zeros(len(actions))
+        for action_idx, action in enumerate(actions):
+            for state_idx, state in enumerate(states):
+                action_values[action_idx] += beliefs[state_idx] * np.dot(self.B[state_idx, :, action_idx], self.C[:, 0])
+        
+        # Sélectionner l'action avec la valeur espérée maximale
+        action_idx = np.argmax(action_values)
+        
+        return action_idx
+
+    def sell_assets(self, market_price):
+        sold_assets = []
+        for asset in self.assets:
+            if market_price >= asset.min_price:
+                self.wealth += market_price
+                sold_assets.append(asset)
+        for asset in sold_assets:
+            self.assets.remove(asset)
+
+class StateSpace:
+    def __init__(self, agents):
+        self.agents = agents
+        
+    def update_state(self):
+        for agent in self.agents:
+            for asset in agent.assets:
+                asset.quality = self.update_quality(asset.quality)
+    
+    def update_quality(self, quality):
+        return quality + np.random.normal(0, 0.1)
+
+class DecisionSpace:
+    def __init__(self, agents):
+        self.agents = agents
+
+    def make_decisions(self, interest_rate, market_price):
+        for agent in self.agents: # L'agent rembourse ses dettes avant d'investir
+            if agent.debt > 0:
+                self.repay_debt(agent)
+            else:
+                current_observation = np.random.choice(observations)
+                action = agent.decide(current_observation=current_observation)
+                if action == actions.index('invest'):
+                    self.invest(agent)
+                agent.sell_assets(market_price)
+
+    def repay_debt(self, agent):
+        payment = min(agent.debt, agent.wealth * 0.1)
+        agent.debt -= payment
+        agent.wealth -= payment
+    
+    def invest(self, agent):
+        investment = agent.wealth * 0.1
+        agent.wealth -= investment
+        asset_quality = np.random.choice([0.4, 0.6, 0.8], p=[0.3, 0.5, 0.2])
+        intrinsic_value = np.random.normal(100, 10)
+        min_price = intrinsic_value * 0.8  # Le prix minimum de vente est 80% de la valeur intrinsèque
+        new_asset = Asset(quality=asset_quality, intrinsic_value=intrinsic_value, min_price=min_price)
+        agent.assets.append(new_asset)
+
+class Market:
+    def __init__(self, agents):
+        self.agents = agents
+        self.prices = []
+    
+    def update_market(self):
+        market_price = np.mean([a.quality * a.intrinsic_value for agent in self.agents for a in agent.assets])
+        self.prices.append(market_price)
+        return market_price
+
+class FinancialSystem:
+    def __init__(self, agents, interest_rate):
+        self.state_space = StateSpace(agents)
+        self.decision_space = DecisionSpace(agents)
+        self.market = Market(agents)
+        self.interest_rate = interest_rate
+    
+    def step(self):
+        self.state_space.update_state()
+        market_price = self.market.update_market()
+        self.decision_space.make_decisions(self.interest_rate, market_price)
+
+# Initialisation des agents avec des portefeuilles d'actions
+agents = [AgentState(wealth=1000, debt=500, assets=[Asset(quality=0.5, intrinsic_value=100, min_price=80)], A=A, B=B, C=C) for _ in range(10)]
+
+# Initialisation du système financier
+initial_interest_rate = 0.5 
+financial_system = FinancialSystem(agents, initial_interest_rate)
+
+# Simulation sur plusieurs étapes
+for _ in range(10):
+    financial_system.step()
+
+# Simulation et visualisation des résultats
+wealth_over_time = []
+quality_over_time = []
+prices_over_time = []
+
+for _ in range(50):
+    financial_system.step()
+    wealth_over_time.append([agent.wealth for agent in agents])
+    quality_over_time.append([np.mean([asset.quality for asset in agent.assets]) for agent in agents])
+    prices_over_time.append(np.mean([np.mean([asset.quality for asset in agent.assets]) for agent in agents]))
+
+# Visualisation
+plt.figure(figsize=(12, 6))
+
+# Évolution de la richesse
+plt.subplot(1, 3, 1)
+plt.plot(wealth_over_time)
+plt.title('Évolution de la richesse')
+
+# Évolution de la qualité des actifs
+plt.subplot(1, 3, 2)
+plt.plot(quality_over_time)
+plt.title('Évolution de la qualité des actifs')
+
+# Évolution des prix du marché
+plt.subplot(1, 3, 3)
+plt.plot(prices_over_time)
+plt.title('Évolution des prix du marché')
+
+plt.tight_layout()
+plt.show()
