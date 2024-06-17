@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import pymdp
 
 # Définir les états économiques possibles
-states = ['low_wealth','low-medium_wealth', 'medium_wealth','medium-high_wealth', 'high_wealth']
+states = ['low_wealth', 'low-medium_wealth', 'medium_wealth', 'medium-high_wealth', 'high_wealth']
 
 # Définir les actions possibles
 actions = ['invest', 'borrow', 'repay']
@@ -87,9 +87,9 @@ class AgentState:
         # Calculer la probabilité de l'observation pour chaque état
         observation_probs = self.A[observation_idx, :]
         
-        # Mettre à jour les croyances en utilisant la règle de Bayes
+        # Mettre à jour les croyances
         updated_beliefs = beliefs * observation_probs
-        updated_beliefs /= np.sum(updated_beliefs)
+        updated_beliefs /= np.sum(updated_beliefs) # Normalise les croyances mises à jour pour que leur somme soit égale à 1.
         
         return updated_beliefs
 
@@ -98,6 +98,7 @@ class AgentState:
         action_values = np.zeros(len(actions))
         for action_idx, action in enumerate(actions):
             for state_idx, state in enumerate(states):
+                # Calcule la contribution de l'état actuel state_idx à la valeur espérée de l'action action_idx 
                 action_values[action_idx] += beliefs[state_idx] * np.dot(self.B[state_idx, :, action_idx], self.C[:, 0])
         
         # Sélectionner l'action avec la valeur espérée maximale
