@@ -10,6 +10,13 @@ states = {
     'medium-high_wealth': (20001, 100000),
     'high_wealth': (100001, float('inf'))
 }
+
+# Définir les observations possibles
+observations = [
+    'no_debt', 'low_debt', 'medium_debt', 'high_debt',
+    'low_interest', 'medium_interest', 'high_interest',
+    'low_price', 'medium_price', 'high_price']
+
 debt_levels = {
     'no_debt': 0,
     'low_debt': (1, 100),
@@ -28,12 +35,6 @@ market_prices = {
     'medium_price': (81, 120),
     'high_price': (121, float('inf'))
 }
-
-# Définir les observations possibles
-observations = [
-    'no_debt', 'low_debt', 'medium_debt', 'high_debt',
-    'low_interest', 'medium_interest', 'high_interest',
-    'low_price', 'medium_price', 'high_price']
 
 # Définir les actions possibles
 actions = ['buy', 'hold', 'sell']
