@@ -3,13 +3,40 @@ import matplotlib.pyplot as plt
 import pymdp
 
 # Définir les états économiques possibles
-states = ['low_wealth', 'low-medium_wealth', 'medium_wealth', 'medium-high_wealth', 'high_wealth']
+states = {
+    'low_wealth': (0, 1000),
+    'low-medium_wealth': (1001, 5000),
+    'medium_wealth': (5001, 20000),
+    'medium-high_wealth': (20001, 100000),
+    'high_wealth': (100001, float('inf'))
+}
+debt_levels = {
+    'no_debt': 0,
+    'low_debt': (1, 100),
+    'medium_debt': (101, 400),
+    'high_debt': (401, 500)
+}
 
-# Définir les actions possibles
-actions = ['invest', 'borrow', 'repay']
+interest_rates = {
+    'low_interest': (0, 0.02),
+    'medium_interest': (0.021, 0.05),
+    'high_interest': (0.051, 0.1)
+}
+
+market_prices = {
+    'low_price': (0, 80),
+    'medium_price': (81, 120),
+    'high_price': (121, float('inf'))
+}
 
 # Définir les observations possibles
-observations = ['low_interest', 'medium_interest', 'high_interest', 'low_price', 'medium_price', 'high_price']
+observations = [
+    'no_debt', 'low_debt', 'medium_debt', 'high_debt',
+    'low_interest', 'medium_interest', 'high_interest',
+    'low_price', 'medium_price', 'high_price']
+
+# Définir les actions possibles
+actions = ['buy', 'hold', 'sell']
 
 # Création de la matrice A
 def create_A_matrix(states, observations):
@@ -43,23 +70,22 @@ def create_B_matrix(states, actions):
 B = create_B_matrix(states, actions)
 
 # Création de la matrice C
-def create_C_matrix(states):
-    num_states = len(states)
+def create_C_matrix(observations):
+    num_observations = len(observations)
     
-    C = np.zeros((num_states, 1))
-    
+    C = np.zeros((num_observations, 1))
+    # L'agent ne veut pas être éjecté
+    C[observations.index('low_debt')] = 1.0    
     # L'agent préfère les taux d'intérêts bas
-    C[observations.index('low_interest')] = 1.0
+    C[observations.index('low_interest')] = 0.75
     
     return C
 
-C = create_C_matrix(states)
+C = create_C_matrix(observations)
 
 class Asset:
-    def __init__(self, quality, intrinsic_value, min_price):
-        self.quality = quality
-        self.intrinsic_value = intrinsic_value
-        self.min_price = min_price
+    def __init__(self, qualities):
+        self.qualities = qualities
 
 class AgentState:
     def __init__(self, wealth, debt, assets, A, B, C):
@@ -71,6 +97,12 @@ class AgentState:
         self.C = C
         self.beliefs = np.ones(len(states)) / len(states)
         self.last_prices = np.zeros(len(self.assets))  # Stock des derniers prix d'actions vendues
+        self.intrinsic_value
+        self.min_price
+
+    def update_intrinsic_value_and_min_price(self):
+        self.intrinsic_value = np.mean([asset.intrinsic_value for asset in self.assets])
+        self.min_price = np.mean([asset.min_price for asset in self.assets])
 
     def decide(self, current_observation):
         observation_idx = observations.index(current_observation)
@@ -106,83 +138,58 @@ class AgentState:
         
         return action_idx
 
-    def sell_assets(self, market_price):
-        sold_assets = []
-        for asset in self.assets:
-            if market_price >= asset.min_price:
-                self.wealth += market_price
-                sold_assets.append(asset)
-        for asset in sold_assets:
-            self.assets.remove(asset)
-
-class StateSpace:
-    def __init__(self, agents):
-        self.agents = agents
-        
-    def update_state(self):
-        for agent in self.agents:
-            for asset in agent.assets:
-                asset.quality = self.update_quality(asset.quality)
-    
-    def update_quality(self, quality):
-        return quality + np.random.normal(0, 0.1)
-
 class DecisionSpace:
     def __init__(self, agents):
         self.agents = agents
 
-    def make_decisions(self, interest_rate, market_price):
-        for agent in self.agents: # L'agent rembourse ses dettes avant d'investir
+    def make_decisions(self):
+        agents_to_remove = []
+        for agent in self.agents:
+            # Etape 1: L'agent tente de rembourser ses dettes
             if agent.debt > 0:
-                self.repay_debt(agent)
-            else:
-                current_observation = np.random.choice(observations)
-                action = agent.decide(current_observation=current_observation)
-                if action == actions.index('invest'):
-                    self.invest(agent)
-                agent.sell_assets(market_price)
+                if agent.wealth >= agent.debt:
+                    # L'agent peut rembourser toute sa dette
+                    agent.wealth -= agent.debt
+                    agent.debt = 0
+                else:
+                    # L'agent ne peut pas rembourser du tout, il est hors jeu
+                    agents_to_remove.append(agent)
+                    continue
 
-    def repay_debt(self, agent):
-        payment = min(agent.debt, agent.wealth * 0.1)
-        agent.debt -= payment
-        agent.wealth -= payment
-    
-    def invest(self, agent):
-        investment = agent.wealth * 0.1
-        agent.wealth -= investment
-        asset_quality = np.random.choice([0.4, 0.6, 0.8], p=[0.3, 0.5, 0.2])
-        intrinsic_value = np.random.normal(100, 10)
-        min_price = intrinsic_value * 0.8  # Le prix minimum de vente est 80% de la valeur intrinsèque
-        new_asset = Asset(quality=asset_quality, intrinsic_value=intrinsic_value, min_price=min_price)
-        agent.assets.append(new_asset)
+            # Etape 2: Mise à jour des préférences
+            self.update_preferences(agent)
 
-class Market:
-    def __init__(self, agents):
-        self.agents = agents
-        self.prices = []
-    
-    def update_market(self):
-        market_price = np.mean([a.quality * a.intrinsic_value for agent in self.agents for a in agent.assets])
-        self.prices.append(market_price)
-        return market_price
+            # Etape 3: Offres ventes/achats
+            self.broadcast_offers(agent, market_price)
+
+            # Step 4: Décision d'achats/ventes
+            self.decide_on_offers(agent, market_price)
+
+    def update_preferences(self, agent):
+        # Mettre à jour les préférences de l'agent en fonction de sa situation financière
+        # Laisser blanc
+
+    def broadcast_offers(self, agent, market_price):
+        # A faire
+
+    def decide_on_offers(self, agent, market_price):
+        # A faire
 
 class FinancialSystem:
     def __init__(self, agents, interest_rate):
-        self.state_space = StateSpace(agents)
         self.decision_space = DecisionSpace(agents)
-        self.market = Market(agents)
         self.interest_rate = interest_rate
-    
+
     def step(self):
-        self.state_space.update_state()
-        market_price = self.market.update_market()
-        self.decision_space.make_decisions(self.interest_rate, market_price)
+        self.decision_space.make_decisions(self.interest_rate, market_price)    
+        # A faire : definition  du prix du marché
 
 # Initialisation des agents avec des portefeuilles d'actions
-agents = [AgentState(wealth=1000, debt=500, assets=[Asset(quality=0.5, intrinsic_value=100, min_price=80)], A=A, B=B, C=C) for _ in range(10)]
+agents = [AgentState(wealth=1000, debt=500, assets=[Asset(qualities=[0.5, 0.6, 0.7])], A=A, B=B, C=C) for _ in range(10)]
 
 # Initialisation du système financier
 initial_interest_rate = 0.5 
+market_price=83
 financial_system = FinancialSystem(agents, initial_interest_rate)
 
 # Simulation sur plusieurs étapes
@@ -207,11 +214,6 @@ plt.figure(figsize=(12, 6))
 plt.subplot(1, 3, 1)
 plt.plot(wealth_over_time)
 plt.title('Évolution de la richesse')
-
-# Évolution de la qualité des actifs
-plt.subplot(1, 3, 2)
-plt.plot(quality_over_time)
-plt.title('Évolution de la qualité des actifs')
 
 # Évolution des prix du marché
 plt.subplot(1, 3, 3)
